@@ -56,6 +56,18 @@ cloud_mcp = FastMCP("Prefect Cloud Tools")
 
 # Tools
 @mcp.tool
+def orientation() -> str:
+    """Use this tool to get oriented with the Prefect MCP server."""
+    return """
+    This is a read-only server. For mutations, use the CLI.
+
+    Use the attached docs MCP server to search for documentation on Prefect concepts, usage examples, and best practices.
+
+    Use get_object_schema to get JSON schemas for complex objects like automations.
+    """
+
+
+@mcp.tool
 async def get_identity() -> IdentityResult:
     """Get identity and connection information for the current Prefect instance.
 
