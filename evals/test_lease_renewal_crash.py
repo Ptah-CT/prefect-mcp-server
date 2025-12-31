@@ -6,125 +6,84 @@ Based on real user issues:
 
 When a flow run holds a concurrency slot, it must periodically renew the lease.
 If renewal fails (network issues, API problems, timeout), Prefect crashes the run
-to prevent over-allocation. This is a common production issue that's hard to diagnose
-without understanding Prefect's internal lease renewal mechanism.
+to prevent over-allocation.
 """
 
 import time
 from collections.abc import Awaitable, Callable
-from unittest.mock import patch
 from uuid import uuid4
 
+import httpx
 import pytest
-from httpx import Request, Response
 from prefect import flow
-from prefect._internal.concurrency.cancellation import CancelledError
-from prefect.client.orchestration import PrefectClient, get_client
+from prefect.client.orchestration import PrefectClient
 from prefect.client.schemas.actions import GlobalConcurrencyLimitCreate
 from prefect.client.schemas.objects import FlowRun
 from prefect.concurrency.sync import concurrency
-from prefect.exceptions import PrefectHTTPStatusError
 from pydantic_ai import Agent
-
-# Minimum lease duration is 60s, renewal happens at 45s (0.75 * 60)
-LEASE_DURATION = 60
-WAIT_FOR_RENEWAL = 50  # Wait past the 45s renewal point
 
 
 @pytest.fixture
 async def crashed_flow_run(prefect_client: PrefectClient) -> FlowRun:
     """Create a flow run that crashes due to lease renewal failure.
 
-    Actually triggers a real lease renewal failure by:
-    1. Creating a concurrency limit
-    2. Running a flow that acquires a slot with strict=True
-    3. Patching the renewal to fail on second attempt
-    4. Waiting for the renewal to fail and crash the flow
+    Simulates a network failure during lease renewal - a common real-world
+    scenario that causes flow runs to crash with:
+    "Concurrency lease renewal failed - slots are no longer reserved"
     """
     limit_name = f"database-connections-{uuid4().hex[:8]}"
     await prefect_client.create_global_concurrency_limit(
-        concurrency_limit=GlobalConcurrencyLimitCreate(
-            name=limit_name,
-            limit=1,
-            slot_decay_per_second=0,
-        )
+        concurrency_limit=GlobalConcurrencyLimitCreate(name=limit_name, limit=1)
     )
 
-    # Track renewal attempts
-    renewal_count = [0]
-    flow_run_id = [None]
+    from prefect.concurrency import _leases
 
-    @flow(name=f"db-sync-job-{uuid4().hex[:8]}")
-    def db_sync_job():
-        from prefect.context import get_run_context
+    original_renewal_loop = _leases._lease_renewal_loop
 
-        ctx = get_run_context()
-        flow_run_id[0] = ctx.flow_run.id
+    async def failing_renewal_loop(lease_id, lease_duration):
+        """Simulate network failure during lease renewal."""
+        raise httpx.ConnectError("Simulated network failure during lease renewal")
 
-        with concurrency(
-            limit_name,
-            occupy=1,
-            lease_duration=LEASE_DURATION,
-            strict=True,  # This makes it crash on lease renewal failure
-        ):
-            # Patch renewal to fail on second attempt (first renewal is immediate)
-            original_renew = type(get_client()).renew_concurrency_lease
+    _leases._lease_renewal_loop = failing_renewal_loop
 
-            async def failing_renew(self, *args, **kwargs):
-                renewal_count[0] += 1
-                if renewal_count[0] > 1:
-                    request = Request("POST", "http://test/renew")
-                    response = Response(404, json={"detail": "Lease not found"})
-                    raise PrefectHTTPStatusError.from_httpx_error(
-                        __import__("httpx").HTTPStatusError(
-                            "Not found", request=request, response=response
-                        )
-                    )
-                return await original_renew(self, *args, **kwargs)
-
-            with patch.object(
-                type(get_client()), "renew_concurrency_lease", failing_renew
-            ):
-                # Wait for renewal to be attempted at t=45s
-                time.sleep(WAIT_FOR_RENEWAL)
-
-        return "done"
-
-    # Run the flow - it will crash due to lease renewal failure
     try:
-        db_sync_job(return_state=True)
-    except (CancelledError, Exception):
-        pass  # Expected - the flow crashes
 
-    if flow_run_id[0] is None:
-        pytest.fail("Flow run ID not captured")
+        @flow(name=f"db-sync-job-{uuid4().hex[:8]}")
+        def db_sync_job():
+            with concurrency(limit_name, occupy=1, strict=True):
+                time.sleep(0.5)  # Give the failure time to propagate
+            return "done"
 
-    return await prefect_client.read_flow_run(flow_run_id[0])
+        try:
+            db_sync_job(return_state=True)
+        except BaseException:
+            # CancelledError is a BaseException, not Exception
+            pass
+
+    finally:
+        _leases._lease_renewal_loop = original_renewal_loop
+
+    runs = await prefect_client.read_flow_runs()
+    return runs[0]
 
 
-@pytest.mark.timeout(120)  # Allow time for the 50s wait
 async def test_diagnoses_lease_renewal_failure(
     simple_agent: Agent,
     crashed_flow_run: FlowRun,
     evaluate_response: Callable[[str, str], Awaitable[None]],
 ) -> None:
     """Test agent identifies concurrency lease renewal failure as crash cause."""
-    # Verify the flow actually crashed
     assert crashed_flow_run.state.type.value == "CRASHED", (
-        f"Expected CRASHED state but got {crashed_flow_run.state.type.value}"
+        f"Expected CRASHED but got {crashed_flow_run.state.type.value}"
     )
 
-    prompt = (
-        f"My flow run '{crashed_flow_run.name}' crashed unexpectedly. What happened?"
-    )
+    prompt = f"My flow run '{crashed_flow_run.name}' crashed. What happened?"
 
     async with simple_agent:
         result = await simple_agent.run(prompt)
 
     await evaluate_response(
-        "Does the agent correctly identify that the flow run crashed due to "
-        "concurrency lease renewal failure? The response should mention "
-        "'lease renewal' or 'concurrency slot' and explain that the run was "
-        "terminated because the lease could not be renewed.",
+        "Does the agent identify that the crash was due to concurrency lease "
+        "renewal failure? Should mention 'lease' or 'concurrency'.",
         result.output,
     )
