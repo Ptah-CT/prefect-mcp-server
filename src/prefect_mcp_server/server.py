@@ -11,8 +11,7 @@ from pydantic import Field
 
 from prefect_mcp_server import _prefect_client
 from prefect_mcp_server.middleware import PrefectAuthMiddleware
-from prefect_mcp_server.settings import settings
-from prefect_mcp_server.types import (
+from prefect_mcp_server.models import (
     AutomationsResult,
     DashboardResult,
     DeploymentsResult,
@@ -25,6 +24,7 @@ from prefect_mcp_server.types import (
     TaskRunsResult,
     WorkPoolsResult,
 )
+from prefect_mcp_server.settings import settings
 
 try:
     import logfire

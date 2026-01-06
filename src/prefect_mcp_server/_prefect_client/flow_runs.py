@@ -8,7 +8,7 @@ from prefect.client.schemas.filters import LogFilter, LogFilterFlowRunId
 from prefect.client.schemas.sorting import FlowRunSort, LogSort
 
 from prefect_mcp_server._prefect_client.client import get_prefect_client
-from prefect_mcp_server.types import LogEntry, LogsResult
+from prefect_mcp_server.models import LogEntry, LogsResult
 
 # Log level mapping from Python logging levels to readable names
 LOG_LEVEL_NAMES = {

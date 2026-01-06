@@ -9,7 +9,7 @@ from prefect.client.schemas.sorting import FlowRunSort
 
 from prefect_mcp_server._prefect_client.client import get_prefect_client
 from prefect_mcp_server._prefect_client.work_pools import get_work_pools
-from prefect_mcp_server.types import (
+from prefect_mcp_server.models import (
     DeploymentDetail,
     DeploymentsResult,
     GlobalConcurrencyLimitInfo,

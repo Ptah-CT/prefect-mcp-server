@@ -6,7 +6,7 @@ import prefect.main  # noqa: F401
 from prefect.client.schemas.filters import FlowFilter
 
 from prefect_mcp_server._prefect_client.client import get_prefect_client
-from prefect_mcp_server.types import FlowsResult
+from prefect_mcp_server.models import FlowsResult
 
 
 async def get_flows(

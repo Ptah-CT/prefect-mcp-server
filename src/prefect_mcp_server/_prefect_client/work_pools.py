@@ -6,7 +6,7 @@ from httpx import HTTPStatusError
 from prefect.exceptions import ObjectNotFound
 
 from prefect_mcp_server._prefect_client.client import get_prefect_client
-from prefect_mcp_server.types import WorkPoolDetail, WorkPoolResult, WorkQueueInfo
+from prefect_mcp_server.models import WorkPoolDetail, WorkPoolResult, WorkQueueInfo
 
 
 async def get_work_pool(work_pool_name: str) -> WorkPoolResult:

@@ -4,7 +4,7 @@ from prefect_mcp_server._prefect_client.client import (
     get_prefect_client,
     get_prefect_cloud_client,
 )
-from prefect_mcp_server.types import (
+from prefect_mcp_server.models import (
     CloudIdentityInfo,
     IdentityResult,
     ServerIdentityInfo,
